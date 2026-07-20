@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ฟอร์มกรอกข้อมูลสินค้าที่จำหน่าย (ออฟไลน์)</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#2563eb">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Tahoma", "Leelawadee UI", sans-serif;
+    background: #f2f4f7;
+    margin: 0;
+    padding: 24px;
+    color: #1f2430;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #667085; font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: #fff;
+    border: 1px solid #e4e7ec;
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+  }
+  .card h2 { font-size: 15px; margin: 0 0 16px 0; color: #344054; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px 20px;
+  }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; }
+  .field.full { grid-column: 1 / -1; }
+  label { font-size: 13px; font-weight: 600; margin-bottom: 5px; color: #344054; }
+  label .req { color: #d92d20; }
+  input, select, textarea {
+    padding: 8px 10px;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: #1f2430;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #7f9cf5;
+    box-shadow: 0 0 0 3px rgba(127,156,245,0.2);
+  }
+  textarea { resize: vertical; min-height: 46px; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  button {
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-secondary { background: #eef2ff; color: #2563eb; }
+  .btn-secondary:hover { background: #e0e7ff; }
+  .btn-outline { background: #fff; color: #344054; border: 1px solid #d0d5dd; }
+  .btn-outline:hover { background: #f9fafb; }
+  .btn-danger { background: #fff; color: #d92d20; border: 1px solid #fda29b; }
+  .btn-danger:hover { background: #fef3f2; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; font-weight: 500; }
+  .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+  .sn-photo-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .file-btn { display: inline-flex; align-items: center; cursor: pointer; margin: 0; }
+  .sn-status { font-size: 12px; color: #667085; }
+  .sn-status.err { color: #d92d20; }
+  .sn-status.ok { color: #067647; }
+  .sn-preview {
+    display: block;
+    max-width: 260px;
+    max-height: 180px;
+    margin-top: 10px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    object-fit: contain;
+  }
+  .msg {
+    display: none;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-top: 14px;
+  }
+  .msg.ok { display: block; background: #ecfdf3; color: #067647; border: 1px solid #abefc6; }
+  .msg.err { display: block; background: #fef3f2; color: #d92d20; border: 1px solid #fda29b; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td {
+    border: 1px solid #eaecf0;
+    padding: 7px 8px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  th { background: #f9fafb; color: #475467; position: sticky; top: 0; }
+  .table-scroll { max-height: 420px; overflow: auto; border: 1px solid #eaecf0; border-radius: 8px; }
+  .count-pill {
+    display: inline-block;
+    background: #eef2ff;
+    color: #3538cd;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .empty-note { padding: 24px; text-align: center; color: #98a2b3; font-size: 13px; }
+  .warn-box {
+    background: #fffaeb;
+    border: 1px solid #fedf89;
+    color: #93370d;
+    font-size: 12.5px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    line-height: 1.6;
+  }
+  .top-row { display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top-row">
+    <div>
+      <h1>ฟอร์มกรอกข้อมูลสินค้าที่จำหน่าย</h1>
+      <div class="sub">ทำงานแบบออฟไลน์ทั้งหมด — ไม่ต้องเชื่อมอินเทอร์เน็ต ข้อมูลจะถูกบันทึกไว้ในเครื่องคอมพิวเตอร์เครื่องนี้เท่านั้น (แยกจากเครื่องอื่น)</div>
+    </div>
+    <button type="button" class="btn-secondary" id="btnInstall" style="display:none;">📲 ติดตั้งเป็นแอป</button>
+  </div>
+
+  <div class="warn-box">
+    ⚠️ ข้อมูลถูกเก็บไว้ในเบราว์เซอร์ของเครื่องนี้เท่านั้น (Local Storage) หากล้างประวัติ/ข้อมูลเบราว์เซอร์ หรือเปิดไฟล์นี้ด้วยเบราว์เซอร์อื่น ข้อมูลจะไม่ปรากฏ —
+    ควรกด <b>"ดาวน์โหลดเป็น CSV"</b> เพื่อสำรองข้อมูล/นำไปรวมเข้าไฟล์ Excel หลักเป็นระยะ
+  </div>
+
+  <div class="card">
+    <h2>กรอกข้อมูลรายการใหม่</h2>
+    <form id="entryForm">
+      <div class="grid">
+        <div class="field">
+          <label>ประเภทสินค้า <span class="req">*</span></label>
+          <select id="f_category" required>
+            <option value="Inverter">Inverter</option>
+            <option value="Battery">Battery</option>
+            <option value="Charger">Charger</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Series number เครื่อง <span class="req">*</span></label>
+          <input type="text" id="f_serial" required placeholder="พิมพ์ SN เอง หรือแนบรูปแล้วกดอ่านอัตโนมัติด้านล่าง">
+          <div class="sn-photo-row">
+            <label class="btn-outline btn-sm file-btn">
+              📷 แนบรูป SN
+              <input type="file" id="f_serial_photo" accept="image/*" style="display:none;">
+            </label>
+            <button type="button" class="btn-secondary btn-sm" id="btnOcr" disabled>🔎 อ่านอัตโนมัติ (OCR)</button>
+            <button type="button" class="btn-outline btn-sm" id="btnClearPhoto" style="display:none;">✕ ลบรูป</button>
+            <span class="sn-status" id="ocrStatus"></span>
+          </div>
+          <img id="f_serial_preview" class="sn-preview" style="display:none;">
+        </div>
+
+        <div class="field">
+          <label>ยี่ห้อ <span class="req">*</span></label>
+          <select id="f_brand" required></select>
+        </div>
+        <div class="field">
+          <label>Model <span class="req">*</span></label>
+          <select id="f_model" required></select>
+        </div>
+
+        <div class="field" id="f_store_wrap">
+          <label>ร้านที่ซื้อสินค้า (เฉพาะ Inverter)</label>
+          <select id="f_store"></select>
+        </div>
+        <div class="field">
+          <label>ชื่อลูกค้า <span class="req">*</span></label>
+          <input type="text" id="f_customer" required>
+        </div>
+
+        <div class="field">
+          <label>เบอร์โทร <span class="req">*</span></label>
+          <input type="text" id="f_phone" required>
+        </div>
+        <div class="field">
+          <label>ประเภทลูกค้า <span class="req">*</span></label>
+          <select id="f_custtype" required></select>
+        </div>
+
+        <div class="field">
+          <label>วันที่ซื้อ <span class="req">*</span></label>
+          <input type="date" id="f_date" required>
+        </div>
+        <div class="field">
+          <label>ช่องทางการซื้อ-ขาย <span class="req">*</span></label>
+          <select id="f_channel" required></select>
+        </div>
+
+        <div class="field">
+          <label>ขายนามบริษัท <span class="req">*</span></label>
+          <select id="f_company" required></select>
+        </div>
+        <div class="field">
+          <label>หมายเหตุ</label>
+          <input type="text" id="f_note">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn-primary">บันทึกข้อมูล</button>
+        <button type="button" class="btn-outline" id="btnClear">ล้างฟอร์ม</button>
+      </div>
+      <div class="msg" id="msgBox"></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="top-row">
+      <h2 style="margin:0;">รายการที่บันทึกไว้ในเครื่องนี้ <span class="count-pill" id="countPill">0</span></h2>
+      <div class="actions" style="margin:0;">
+        <button type="button" class="btn-secondary" id="btnExport">⬇ ดาวน์โหลดเป็น CSV</button>
+        <button type="button" class="btn-danger" id="btnClearAll">ล้างข้อมูลทั้งหมด</button>
+      </div>
+    </div>
+    <div style="height:14px;"></div>
+    <div class="table-scroll" id="tableWrap">
+      <div class="empty-note">ยังไม่มีข้อมูลที่บันทึกไว้ในเครื่องนี้</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BRAND_LISTS = {
+  Inverter: ["Huawei","SOFAR","TMDA","SRNE","TBB","Deye","SAKO","LVTOPSUN","INVT","SOLIS","LUXPOWER"],
+  Battery: ["SCD","LVTOPSUN","SAKO","SRNE","NO_BRAND","CST"],
+  Charger: ["SRNE"]
+};
+
+const MODEL_LISTS = {
+  Inverter: {
+    Huawei: ["SUN2000-3KTL-L1","SUN2000-5KTL-L1","SUN2000-5KTL-M1","SUN2000-10KTL-M1","SUN2000-12KTL-M2","SUN2000-15KTL-M2","SUN2000-15KTL-M5","SUN2000-20KTL-M2","SUN2000-20KTL-M5","SUN2000-30KTL-M3","SUN2000-50KTL-M3","DDSU666-H (1 Phase Power Sensor)","DTSU666-H (3 Phases Power Sensor)","SmartDongle-WLAN-FE (SDongleA-05)","SUN2000-10K-LC0"],
+    SOFAR: ["SOFAR 1600TL-G3","SOFAR 3300TL-G3","SOFAR 5KTL-G3","SOFAR 5.5kw G3","SOFAR 6KTLM-G3","SOFAR 7.5KTL","SOFAR 11kW G3","SOFAR 20kW","SOFAR 30kW","SOFAR 60kW","SOFAR 110KTLX-G4"],
+    TMDA: ["SUN-3K-G","SUN-5K-G","SUN-6K-G03","SUN-10K-G","SUN-10K-G03","SUN-15K-G03","SUN-20K-G03","SUN-30K-G03","SUN-50K-G03","SUN-100K-G03","Smart Meter 1phase,CT","Smart Meter 3phase ,CT","Smart Meter 3phase ,CT ,>100kW"],
+    SRNE: ["HF2430S80-H [3kW]","HFP4850S80-H [5kW]","HFP4850S80-145","HSI 5500P [5.5kW]","HYP4850S100-H [5kW]","HYP4860S100-H [6kW]","HESP4860S100-H [6kW]","HESP4880S200-H [8kW]","ASP48100S200-H [10kW]","SPI 10K-SP","ASP48120SH3 [12kW]","WIFI plug สำหรับ SRNE","SR-EOT02S-220 [2.5kW]","HF2430S60-100"],
+    TBB: [],
+    Deye: ["SUN-5K-SG05LP1-EU","SUN-5K-SG04LP3-EU","SUN-5K-SG03LP1-EU","SUN-10K-SG05LP1-EU","SUN-10K-SG04LP3-EU","SUN-10K-SG03LP3-EU","SUN-12K-SG04LP3-EU","SUN-5K-SG04LP1-EU-SM2","SUN-5K-SG05LP3-EU-SM2","SUN-15K-SG05LP3-EU-SM2","SUN-6K-SG04LP1-EU-SM2","SUN-20K-SG05LP3-EU-SM2","SUN-6K-OG01LP1-EU-AM2","SUN-8K-SG05LP1-EU-SM2-P","SUN-30K-SG01HP3-EU-BM3","SUN-16K-SG01LP1-EU"],
+    SAKO: ["SAKO-POLO-5kW","SAKO-Sun Pro 5.5kW","SAKO-Sun Pro 3.5kW","WIFI plug สำหรับ SAKO"],
+    LVTOPSUN: ["LV-6kW-Pro","LV-6kW-LT-6048M100"],
+    INVT: ["GD100-2R2G-4-PV","GD100-2R2G-SS2-PV","GD100-2R2G-S2-P","GD100-004-4-PV","GD100-004-SS2-PV","GD100-5R5G-4-PV","GD100-7R5G-4-PV","GD100-011G-4-PV","GD100-015G-4-PV","GD100-022G-4-PV"],
+    SOLIS: ["S6-GR1P5K","Smart Meter","S6-EH1P6K-L-PRO","S6-EH1P6K-L-PLUS"],
+    LUXPOWER: ["SNA 6000 WPV","SNA-EU 12000"]
+  },
+  Battery: {
+    SCD: ["LI 24V 60A","LI 12V 100A"],
+    LVTOPSUN: ["LI 12V 100A","LI 24V 100A","LI 51.2V 100A","LI 51.2V 200A","LI 51.2V 300A G2","LI 51.2V 300A G3","Deep Gel 12V 50A","Deep Gel 12V 100A","Deep Gel 12V 150A","Deep Gel 12V 200A","LI 24V 280A","LI 51.2V 314A G3","LI 51.2V 314A G4"],
+    SAKO: ["LI 24V 100A","LI 12V 200A"],
+    SRNE: ["EOS 51.2V 100A"],
+    NO_BRAND: ["LI 12V 100A-NO LCD"],
+    CST: ["Li 12V 100A","Li 25.6V 100A"]
+  },
+  Charger: {
+    SRNE: ["ML20A","ML30A","ML40A","MC20A","MC30A","MC40A","MC60A","MC85A","BT-2","RM-6","BT-1"]
+  }
+};
+
+const STORES = ["JTN","TAKE TIME","LVTOPSUN","TMDA","SRNE","SAKO","ร้านตามนิยม","IDEA","โกดังโซลาร์ (K-Link)"];
+const CUSTOMER_TYPES = ["ลูกค้าปลีก","บริษัท/จัดซื้อ","ช่าง","ลูกค้าบ้านแดดดี","ร้านค้า","ลูกค้าจากที่อื่น"];
+const CHANNELS = ["ซื้อตรงกับทางร้าน/Line OA","ซื้อผ่าน Lazada","ซื้อผ่าน Shopee","ซื้อผ่าน Web","ซื้อผ่าน Line shopping","ซื้อผ่าน Tiktok"];
+const COMPANIES = ["บริษัท ถาวรพัฒนา","บริษัท ที.พี.เอเนอจิ"];
+
+const STORAGE_KEY = "trackback_entries_v1";
+
+const el = id => document.getElementById(id);
+
+function fillSelect(select, items, placeholder) {
+  select.innerHTML = "";
+  if (placeholder) {
+    const opt = document.createElement("option");
+    opt.value = ""; opt.textContent = placeholder;
+    select.appendChild(opt);
+  }
+  items.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    select.appendChild(opt);
+  });
+}
+
+function refreshBrandOptions() {
+  const cat = el("f_category").value;
+  fillSelect(el("f_brand"), BRAND_LISTS[cat] || [], "-- เลือกยี่ห้อ --");
+  refreshModelOptions();
+  el("f_store_wrap").style.display = (cat === "Inverter") ? "" : "none";
+}
+
+function refreshModelOptions() {
+  const cat = el("f_category").value;
+  const brand = el("f_brand").value;
+  const models = (MODEL_LISTS[cat] && MODEL_LISTS[cat][brand]) || [];
+  fillSelect(el("f_model"), models, models.length ? "-- เลือก Model --" : "(ไม่มีข้อมูล Model สำหรับยี่ห้อนี้)");
+}
+
+function initStaticSelects() {
+  fillSelect(el("f_store"), STORES, "-- เลือกร้าน --");
+  fillSelect(el("f_custtype"), CUSTOMER_TYPES, "-- เลือกประเภทลูกค้า --");
+  fillSelect(el("f_channel"), CHANNELS, "-- เลือกช่องทาง --");
+  fillSelect(el("f_company"), COMPANIES, "-- เลือกบริษัท --");
+}
+
+el("f_category").addEventListener("change", refreshBrandOptions);
+el("f_brand").addEventListener("change", refreshModelOptions);
+
+function todayStr() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+function resetForm(keepCategory) {
+  const cat = keepCategory ? el("f_category").value : "Inverter";
+  el("entryForm").reset();
+  el("f_category").value = cat;
+  refreshBrandOptions();
+  el("f_date").value = todayStr();
+  clearSerialPhoto();
+}
+
+// ---- Serial number photo + OCR ----
+let currentSerialPhotoUrl = null;
+let tesseractLoadPromise = null;
+
+function setOcrStatus(text, kind) {
+  const s = el("ocrStatus");
+  s.textContent = text || "";
+  s.className = "sn-status" + (kind ? " " + kind : "");
+}
+
+function clearSerialPhoto() {
+  const fileInput = el("f_serial_photo");
+  const preview = el("f_serial_preview");
+  if (currentSerialPhotoUrl) {
+    URL.revokeObjectURL(currentSerialPhotoUrl);
+    currentSerialPhotoUrl = null;
+  }
+  fileInput.value = "";
+  preview.src = "";
+  preview.style.display = "none";
+  el("btnOcr").disabled = true;
+  el("btnClearPhoto").style.display = "none";
+  setOcrStatus("");
+}
+
+el("f_serial_photo").addEventListener("change", (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  if (currentSerialPhotoUrl) URL.revokeObjectURL(currentSerialPhotoUrl);
+  currentSerialPhotoUrl = URL.createObjectURL(file);
+  const preview = el("f_serial_preview");
+  preview.src = currentSerialPhotoUrl;
+  preview.style.display = "block";
+  el("btnOcr").disabled = false;
+  el("btnClearPhoto").style.display = "";
+  setOcrStatus("แนบรูปแล้ว — กด \"อ่านอัตโนมัติ\" เพื่อให้ระบบลองอ่าน SN ให้ หรือพิมพ์เองก็ได้");
+});
+
+el("btnClearPhoto").addEventListener("click", clearSerialPhoto);
+
+function loadTesseractFromCDN() {
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("โหลดตัวอ่านข้อความไม่สำเร็จ (ต้องมีอินเทอร์เน็ตอย่างน้อยครั้งแรกที่ใช้)"));
+    document.head.appendChild(script);
+  });
+  return tesseractLoadPromise;
+}
+
+function extractLikelySerial(rawText) {
+  const cleaned = rawText.replace(/[^A-Za-z0-9\-]/g, " ").trim();
+  const tokens = cleaned.split(/\s+/).filter(t => t.length >= 4);
+  if (tokens.length === 0) return rawText.trim();
+  tokens.sort((a, b) => b.length - a.length);
+  return tokens[0].toUpperCase();
+}
+
+el("btnOcr").addEventListener("click", async () => {
+  const fileInput = el("f_serial_photo");
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) return;
+  const btn = el("btnOcr");
+  btn.disabled = true;
+  setOcrStatus("กำลังโหลดตัวอ่านข้อความ...");
+  try {
+    await loadTesseractFromCDN();
+    setOcrStatus("กำลังอ่านตัวเลข/ตัวอักษรจากรูป...");
+    const result = await Tesseract.recognize(file, "eng");
+    const raw = (result && result.data && result.data.text) || "";
+    const guess = extractLikelySerial(raw);
+    if (guess) {
+      el("f_serial").value = guess;
+      setOcrStatus("อ่านได้: \"" + guess + "\" — กรุณาตรวจสอบกับรูปก่อนบันทึก (OCR อาจอ่านผิดได้)", "ok");
+    } else {
+      setOcrStatus("อ่านจากรูปไม่ได้ กรุณาพิมพ์ SN เอง", "err");
+    }
+  } catch (err) {
+    setOcrStatus(err.message || "อ่านจากรูปไม่สำเร็จ กรุณาพิมพ์ SN เอง", "err");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function loadEntries() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch (e) { return []; }
+}
+
+function saveEntries(list) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+}
+
+function formatDateTH(iso) {
+  if (!iso) return "";
+  const [y,m,d] = iso.split("-");
+  return `${d}-${m}-${y}`;
+}
+
+function renderTable() {
+  const entries = loadEntries();
+  el("countPill").textContent = entries.length;
+  const wrap = el("tableWrap");
+  if (entries.length === 0) {
+    wrap.innerHTML = '<div class="empty-note">ยังไม่มีข้อมูลที่บันทึกไว้ในเครื่องนี้</div>';
+    return;
+  }
+  const cols = [
+    ["category","ประเภท"],["serial","Series number"],["brand","ยี่ห้อ"],["model","Model"],
+    ["store","ร้านที่ซื้อ"],["customer","ชื่อลูกค้า"],["phone","เบอร์โทร"],["custtype","ประเภทลูกค้า"],
+    ["date","วันที่ซื้อ"],["channel","ช่องทาง"],["company","บริษัท"],["note","หมายเหตุ"],["savedAt","บันทึกเมื่อ"]
+  ];
+  let html = "<table><thead><tr>";
+  cols.forEach(c => html += `<th>${c[1]}</th>`);
+  html += "<th>จัดการ</th></tr></thead><tbody>";
+  entries.slice().reverse().forEach(entry => {
+    html += "<tr>";
+    cols.forEach(c => {
+      let v = entry[c[0]] || "";
+      if (c[0] === "date") v = formatDateTH(v);
+      html += `<td>${escapeHtml(v)}</td>`;
+    });
+    html += `<td><button type="button" class="btn-danger btn-sm" data-del="${entry.id}">ลบ</button></td>`;
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+  wrap.innerHTML = html;
+  wrap.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (!confirm("ยืนยันลบรายการนี้?")) return;
+      const id = btn.getAttribute("data-del");
+      const remaining = loadEntries().filter(e => String(e.id) !== id);
+      saveEntries(remaining);
+      renderTable();
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function showMsg(text, ok) {
+  const box = el("msgBox");
+  box.textContent = text;
+  box.className = "msg " + (ok ? "ok" : "err");
+  setTimeout(() => { box.className = "msg"; }, 4000);
+}
+
+el("entryForm").addEventListener("submit", function(ev) {
+  ev.preventDefault();
+  const cat = el("f_category").value;
+  const required = [
+    ["f_serial","Series number เครื่อง"], ["f_brand","ยี่ห้อ"], ["f_model","Model"],
+    ["f_customer","ชื่อลูกค้า"], ["f_phone","เบอร์โทร"], ["f_custtype","ประเภทลูกค้า"],
+    ["f_date","วันที่ซื้อ"], ["f_channel","ช่องทางการซื้อ-ขาย"], ["f_company","ขายนามบริษัท"]
+  ];
+  for (const [id, label] of required) {
+    if (!el(id).value) {
+      showMsg("กรุณากรอกข้อมูลในช่อง: " + label, false);
+      el(id).focus();
+      return;
+    }
+  }
+
+  const entry = {
+    id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
+    category: cat,
+    serial: el("f_serial").value.trim(),
+    brand: el("f_brand").value,
+    model: el("f_model").value,
+    store: cat === "Inverter" ? el("f_store").value : "",
+    customer: el("f_customer").value.trim(),
+    phone: el("f_phone").value.trim(),
+    custtype: el("f_custtype").value,
+    date: el("f_date").value,
+    channel: el("f_channel").value,
+    company: el("f_company").value,
+    note: el("f_note").value.trim(),
+    savedAt: new Date().toLocaleString("th-TH")
+  };
+
+  const entries = loadEntries();
+  entries.push(entry);
+  saveEntries(entries);
+  renderTable();
+  showMsg("บันทึกข้อมูลเรียบร้อยแล้ว (เก็บไว้ในเครื่องนี้)", true);
+  resetForm(true);
+});
+
+el("btnClear").addEventListener("click", () => resetForm(true));
+
+el("btnClearAll").addEventListener("click", () => {
+  if (!confirm("ยืนยันลบข้อมูลทั้งหมดที่บันทึกไว้ในเครื่องนี้? การกระทำนี้ย้อนกลับไม่ได้")) return;
+  saveEntries([]);
+  renderTable();
+});
+
+el("btnExport").addEventListener("click", () => {
+  const entries = loadEntries();
+  if (entries.length === 0) {
+    showMsg("ยังไม่มีข้อมูลให้ดาวน์โหลด", false);
+    return;
+  }
+  const header = ["ประเภทสินค้า","Series number เครื่อง","ยี่ห้อ","Model","ร้านที่ซื้อสินค้า","ชื่อลูกค้า","เบอร์โทร","ประเภทลูกค้า","วันที่ซื้อ","ช่องทางการซื้อ-ขาย","ขายนามบริษัท","หมายเหตุ","บันทึกเมื่อ"];
+  const rows = entries.map(e => [
+    e.category, e.serial, e.brand, e.model, e.store, e.customer, e.phone,
+    e.custtype, formatDateTH(e.date), e.channel, e.company, e.note, e.savedAt
+  ]);
+  const csvEscape = v => {
+    v = String(v == null ? "" : v);
+    if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  };
+  const csv = [header, ...rows].map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+  a.href = url;
+  a.download = `trackback-export-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// init
+initStaticSelects();
+refreshBrandOptions();
+el("f_date").value = todayStr();
+renderTable();
+
+// PWA: register service worker (only works when served via http/https, silently no-ops on file://)
+if ("serviceWorker" in navigator && (location.protocol === "http:" || location.protocol === "https:")) {
+  navigator.serviceWorker.register("service-worker.js").catch(() => {});
+}
+
+// PWA: show a manual "install" button when the browser offers it
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const btn = el("btnInstall");
+  if (btn) btn.style.display = "";
+});
+const installBtn = el("btnInstall");
+if (installBtn) {
+  installBtn.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    installBtn.style.display = "none";
+  });
+}
+</script>
+</body>
+</html>
