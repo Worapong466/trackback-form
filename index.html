@@ -226,10 +226,39 @@
   </div>
 
   <div class="card">
+    <h2>🌐 ฐานข้อมูลกลาง (Google Sheet) — รวมข้อมูลจากทุกเครื่อง</h2>
+    <div class="field full">
+      <label>Web App URL จาก Google Apps Script</label>
+      <input type="text" id="f_sheet_url" placeholder="วาง URL ที่ได้จากขั้นตอน Deploy ของ Google Apps Script ที่นี่ (วางครั้งเดียว ระบบจะจำไว้)">
+    </div>
+    <div class="sn-status" id="syncStatus" style="margin-top:8px;"></div>
+    <div class="actions">
+      <button type="button" class="btn-outline btn-sm" id="btnSyncNow">🔄 ซิงก์ข้อมูลที่ค้างส่งตอนนี้</button>
+    </div>
+
+    <div style="height:18px;"></div>
+    <h2>⬇ ดาวน์โหลดข้อมูลรวมจากทุกเครื่อง ตามช่วงวันที่</h2>
+    <div class="grid">
+      <div class="field">
+        <label>ตั้งแต่วันที่</label>
+        <input type="date" id="f_range_from">
+      </div>
+      <div class="field">
+        <label>ถึงวันที่</label>
+        <input type="date" id="f_range_to">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn-secondary" id="btnDownloadRange">⬇ ดาวน์โหลด CSV ตามช่วงวันที่ (จากฐานข้อมูลกลาง)</button>
+    </div>
+    <div class="sn-status" id="rangeStatus" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
     <div class="top-row">
       <h2 style="margin:0;">รายการที่บันทึกไว้ในเครื่องนี้ <span class="count-pill" id="countPill">0</span></h2>
       <div class="actions" style="margin:0;">
-        <button type="button" class="btn-secondary" id="btnExport">⬇ ดาวน์โหลดเป็น CSV</button>
+        <button type="button" class="btn-secondary" id="btnExport">⬇ ดาวน์โหลดเป็น CSV (เฉพาะเครื่องนี้)</button>
         <button type="button" class="btn-danger" id="btnClearAll">ล้างข้อมูลทั้งหมด</button>
       </div>
     </div>
@@ -280,8 +309,28 @@ const CHANNELS = ["ซื้อตรงกับทางร้าน/Line OA",
 const COMPANIES = ["บริษัท ถาวรพัฒนา","บริษัท ที.พี.เอเนอจิ"];
 
 const STORAGE_KEY = "trackback_entries_v1";
+const SHEET_URL_KEY = "trackback_sheet_url_v1";
+const DEVICE_ID_KEY = "trackback_device_id_v1";
+
+// ตั้งค่านี้ครั้งเดียวหลัง Deploy Google Apps Script แล้ว (วาง URL ในเครื่องหมายคำพูด)
+// ทุกเครื่องที่เปิดไฟล์นี้ (หรือเปิดผ่านลิงก์ GitHub Pages) จะได้ค่านี้ไปใช้อัตโนมัติ ไม่ต้องกรอกเอง
+const DEFAULT_SHEET_URL = "https://script.google.com/macros/s/AKfycbwQG1wc68ffkOigQOKwmpmbEG-2-JI0PRFnQoVygWeR5OV_3cU263LGeDunKZ4kL2c6/exec";
 
 const el = id => document.getElementById(id);
+
+function getDeviceId() {
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = "dev-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  return id;
+}
+
+function getSheetUrl() {
+  const saved = (localStorage.getItem(SHEET_URL_KEY) || "").trim();
+  return saved || DEFAULT_SHEET_URL.trim();
+}
 
 function fillSelect(select, items, placeholder) {
   select.innerHTML = "";
@@ -433,6 +482,82 @@ function saveEntries(list) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 }
 
+// ---- Sync to central Google Sheet ----
+async function syncEntry(entry) {
+  const url = getSheetUrl();
+  if (!url) return false;
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      body: JSON.stringify({ ...entry, deviceId: getDeviceId() })
+      // ไม่ตั้ง Content-Type ตรงๆ เพื่อเลี่ยง CORS preflight (Apps Script อ่าน e.postData.contents ได้อยู่แล้ว)
+    });
+    const data = await resp.json().catch(() => null);
+    return !!data && data.status === "ok";
+  } catch (e) {
+    return false;
+  }
+}
+
+let syncInProgress = false;
+async function syncPendingEntries() {
+  const url = getSheetUrl();
+  if (!url || syncInProgress) {
+    updateSyncStatusText();
+    return;
+  }
+  syncInProgress = true;
+  updateSyncStatusText("กำลังซิงก์...");
+  const entries = loadEntries();
+  let changed = false;
+  for (const entry of entries) {
+    if (entry.synced) continue;
+    const ok = await syncEntry(entry);
+    if (ok) {
+      entry.synced = true;
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveEntries(entries);
+    renderTable();
+  }
+  syncInProgress = false;
+  updateSyncStatusText();
+}
+
+function updateSyncStatusText(overrideText) {
+  const box = el("syncStatus");
+  const url = getSheetUrl();
+  if (overrideText) {
+    box.textContent = overrideText;
+    box.className = "sn-status";
+    return;
+  }
+  if (!url) {
+    box.textContent = "ยังไม่ได้ตั้งค่า Google Sheet URL — ข้อมูลจะเก็บไว้ในเครื่องนี้เท่านั้น";
+    box.className = "sn-status err";
+    return;
+  }
+  const entries = loadEntries();
+  const pending = entries.filter(e => !e.synced).length;
+  if (pending === 0) {
+    box.textContent = "ซิงก์ขึ้นฐานข้อมูลกลางครบแล้ว (เครื่องนี้มี " + entries.length + " รายการ)";
+    box.className = "sn-status ok";
+  } else {
+    box.textContent = "ค้างซิงก์ " + pending + " รายการ (จะลองอัตโนมัติ หรือกด \"ซิงก์ตอนนี้\")";
+    box.className = "sn-status err";
+  }
+}
+
+el("f_sheet_url").addEventListener("change", () => {
+  localStorage.setItem(SHEET_URL_KEY, el("f_sheet_url").value.trim());
+  updateSyncStatusText();
+  syncPendingEntries();
+});
+
+el("btnSyncNow").addEventListener("click", () => syncPendingEntries());
+
 function formatDateTH(iso) {
   if (!iso) return "";
   const [y,m,d] = iso.split("-");
@@ -452,11 +577,12 @@ function renderTable() {
     ["store","ร้านที่ซื้อ"],["customer","ชื่อลูกค้า"],["phone","เบอร์โทร"],["custtype","ประเภทลูกค้า"],
     ["date","วันที่ซื้อ"],["channel","ช่องทาง"],["company","บริษัท"],["note","หมายเหตุ"],["savedAt","บันทึกเมื่อ"]
   ];
-  let html = "<table><thead><tr>";
+  let html = "<table><thead><tr><th>ซิงก์</th>";
   cols.forEach(c => html += `<th>${c[1]}</th>`);
   html += "<th>จัดการ</th></tr></thead><tbody>";
   entries.slice().reverse().forEach(entry => {
     html += "<tr>";
+    html += `<td>${entry.synced ? "✅" : "⏳"}</td>`;
     cols.forEach(c => {
       let v = entry[c[0]] || "";
       if (c[0] === "date") v = formatDateTH(v);
@@ -519,15 +645,22 @@ el("entryForm").addEventListener("submit", function(ev) {
     channel: el("f_channel").value,
     company: el("f_company").value,
     note: el("f_note").value.trim(),
-    savedAt: new Date().toLocaleString("th-TH")
+    savedAt: new Date().toLocaleString("th-TH"),
+    synced: false
   };
 
   const entries = loadEntries();
   entries.push(entry);
   saveEntries(entries);
   renderTable();
-  showMsg("บันทึกข้อมูลเรียบร้อยแล้ว (เก็บไว้ในเครื่องนี้)", true);
+
+  if (getSheetUrl()) {
+    showMsg("บันทึกข้อมูลเรียบร้อยแล้ว (เก็บไว้ในเครื่องนี้ + กำลังส่งขึ้นฐานข้อมูลกลาง)", true);
+  } else {
+    showMsg("บันทึกข้อมูลเรียบร้อยแล้ว (เก็บไว้ในเครื่องนี้เท่านั้น — ยังไม่ได้ตั้งค่า Google Sheet URL ด้านบน)", true);
+  }
   resetForm(true);
+  syncPendingEntries();
 });
 
 el("btnClear").addEventListener("click", () => resetForm(true));
@@ -537,6 +670,25 @@ el("btnClearAll").addEventListener("click", () => {
   saveEntries([]);
   renderTable();
 });
+
+function triggerCsvDownload(header, rows, filenamePrefix) {
+  const csvEscape = v => {
+    v = String(v == null ? "" : v);
+    if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  };
+  const csv = [header, ...rows].map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+  a.href = url;
+  a.download = `${filenamePrefix}-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 el("btnExport").addEventListener("click", () => {
   const entries = loadEntries();
@@ -549,29 +701,54 @@ el("btnExport").addEventListener("click", () => {
     e.category, e.serial, e.brand, e.model, e.store, e.customer, e.phone,
     e.custtype, formatDateTH(e.date), e.channel, e.company, e.note, e.savedAt
   ]);
-  const csvEscape = v => {
-    v = String(v == null ? "" : v);
-    if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
-    return v;
-  };
-  const csv = [header, ...rows].map(r => r.map(csvEscape).join(",")).join("\r\n");
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
-  a.href = url;
-  a.download = `trackback-export-${stamp}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerCsvDownload(header, rows, "trackback-export-เครื่องนี้");
+});
+
+function setRangeStatus(text, kind) {
+  const box = el("rangeStatus");
+  box.textContent = text || "";
+  box.className = "sn-status" + (kind ? " " + kind : "");
+}
+
+el("btnDownloadRange").addEventListener("click", async () => {
+  const url = getSheetUrl();
+  if (!url) {
+    setRangeStatus("กรุณาตั้งค่า Google Sheet URL ด้านบนก่อน", "err");
+    return;
+  }
+  const from = el("f_range_from").value;
+  const to = el("f_range_to").value;
+  const btn = el("btnDownloadRange");
+  btn.disabled = true;
+  setRangeStatus("กำลังดึงข้อมูลจากฐานข้อมูลกลาง...");
+  try {
+    const qs = new URLSearchParams();
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    const resp = await fetch(url + (qs.toString() ? "?" + qs.toString() : ""));
+    const data = await resp.json();
+    if (!data || !data.rows) throw new Error("รูปแบบข้อมูลที่ได้ไม่ถูกต้อง");
+    if (data.rows.length === 0) {
+      setRangeStatus("ไม่พบข้อมูลในช่วงวันที่ที่เลือก", "err");
+      return;
+    }
+    triggerCsvDownload(data.header, data.rows, "trackback-รวมทุกเครื่อง");
+    setRangeStatus("ดาวน์โหลดสำเร็จ (" + data.rows.length + " รายการ)", "ok");
+  } catch (err) {
+    setRangeStatus("ดึงข้อมูลไม่สำเร็จ: " + err.message, "err");
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // init
 initStaticSelects();
 refreshBrandOptions();
 el("f_date").value = todayStr();
+el("f_sheet_url").value = getSheetUrl();
 renderTable();
+updateSyncStatusText();
+syncPendingEntries();
 
 // PWA: register service worker (only works when served via http/https, silently no-ops on file://)
 if ("serviceWorker" in navigator && (location.protocol === "http:" || location.protocol === "https:")) {
