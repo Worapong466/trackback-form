@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ตรวจสอบประกันสินค้า (พนักงาน)</title>
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#2563eb">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Tahoma", "Leelawadee UI", sans-serif;
+    background: #f2f4f7;
+    margin: 0;
+    padding: 24px;
+    color: #1f2430;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px 0; text-align: center; }
+  .sub { color: #667085; font-size: 13px; margin-bottom: 24px; text-align: center; }
+  .badge-staff {
+    display: block;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #93370d;
+    background: #fffaeb;
+    border: 1px solid #fedf89;
+    border-radius: 999px;
+    padding: 4px 12px;
+    width: fit-content;
+    margin: 0 auto 16px auto;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid #e4e7ec;
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+  }
+  .field { display: flex; flex-direction: column; margin-bottom: 16px; }
+  label { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #344054; }
+  input {
+    padding: 12px 14px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    font-size: 16px;
+    font-family: inherit;
+  }
+  input:focus {
+    outline: none;
+    border-color: #7f9cf5;
+    box-shadow: 0 0 0 3px rgba(127,156,245,0.2);
+  }
+  button {
+    width: 100%;
+    border: none;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #2563eb;
+    color: #fff;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .result { display: none; }
+  .result.show { display: block; }
+  .result-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .result-header.ok { background: #ecfdf3; color: #067647; border: 1px solid #abefc6; }
+  .result-header.expired { background: #fef3f2; color: #d92d20; border: 1px solid #fda29b; }
+  .result-header.err { background: #fef3f2; color: #d92d20; border: 1px solid #fda29b; }
+
+  .section-title { font-size: 12px; font-weight: 700; color: #98a2b3; text-transform: uppercase; margin: 18px 0 6px 0; }
+  .section-title:first-of-type { margin-top: 0; }
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 9px 0;
+    border-bottom: 1px solid #f0f2f5;
+    font-size: 14px;
+    gap: 12px;
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .label { color: #667085; flex-shrink: 0; }
+  .info-row .value { font-weight: 600; text-align: right; }
+
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.5);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .footnote { font-size: 12px; color: #98a2b3; text-align: center; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 ตรวจสอบประกันสินค้า</h1>
+  <div class="badge-staff">🔒 หน้าสำหรับพนักงาน — ห้ามส่งลิงก์นี้ให้ลูกค้า</div>
+  <div class="sub">กรอกหมายเลข Series number เพื่อดูข้อมูลทั้งหมดที่บันทึกไว้</div>
+
+  <div class="card">
+    <form id="lookupForm">
+      <div class="field">
+        <label>Series number เครื่อง</label>
+        <input type="text" id="f_serial" placeholder="เช่น SR-27XXXXXX " required autocomplete="off">
+      </div>
+      <button type="submit" id="btnCheck">ตรวจสอบ</button>
+    </form>
+  </div>
+
+  <div class="card result" id="resultCard">
+    <div id="resultHeader" class="result-header"></div>
+    <div id="resultBody"></div>
+  </div>
+
+  <div class="footnote">ข้อมูลดึงสดจากฐานข้อมูลกลาง (Google Sheet) เดียวกับฟอร์มกรอกข้อมูล</div>
+</div>
+
+<script>
+const DEFAULT_SHEET_URL = "https://script.google.com/macros/s/AKfycbwQG1wc68ffkOigQOKwmpmbEG-2-JI0PRFnQoVygWeR5OV_3cU263LGeDunKZ4kL2c6/exec";
+const el = id => document.getElementById(id);
+
+function formatDateTH(iso) {
+  if (!iso) return "-";
+  const [y, m, d] = iso.split("-");
+  return `${d}-${m}-${y}`;
+}
+
+function showResult(headerHtml, headerClass, bodyHtml) {
+  el("resultCard").classList.add("show");
+  const h = el("resultHeader");
+  h.className = "result-header " + headerClass;
+  h.innerHTML = headerHtml;
+  el("resultBody").innerHTML = bodyHtml;
+}
+
+function infoRow(label, value) {
+  return '<div class="info-row"><span class="label">' + label + '</span><span class="value">' + (value || "-") + "</span></div>";
+}
+
+function sectionTitle(text) {
+  return '<div class="section-title">' + text + '</div>';
+}
+
+el("lookupForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const serial = el("f_serial").value.trim();
+  if (!serial) return;
+
+  const btn = el("btnCheck");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>กำลังตรวจสอบ...';
+  el("resultCard").classList.remove("show");
+
+  try {
+    const url = DEFAULT_SHEET_URL + "?mode=stafflookup&serial=" + encodeURIComponent(serial) + "&_cb=" + Date.now();
+    const resp = await fetch(url, { cache: "no-store" });
+    const data = await resp.json();
+
+    if (data.status === "not_found") {
+      showResult(
+        "❌ ไม่พบข้อมูล",
+        "err",
+        '<div style="font-size:14px;color:#667085;">ไม่พบ Series number นี้ในระบบ กรุณาตรวจสอบตัวเลข/ตัวอักษรอีกครั้ง</div>'
+      );
+    } else if (data.status === "error") {
+      showResult("⚠️ เกิดข้อผิดพลาด", "err", '<div style="font-size:14px;color:#667085;">' + (data.message || "") + "</div>");
+    } else if (data.status === "found") {
+      const r = data.record || {};
+
+      let bodyHtml = "";
+      bodyHtml += sectionTitle("ข้อมูลสินค้า");
+      bodyHtml += infoRow("ประเภทสินค้า", r["ประเภทสินค้า"]);
+      bodyHtml += infoRow("Series number", r["Series number เครื่อง"]);
+      bodyHtml += infoRow("ยี่ห้อ", r["ยี่ห้อ"]);
+      bodyHtml += infoRow("รุ่น", r["Model"]);
+      if (r["ร้านที่ซื้อสินค้า"]) bodyHtml += infoRow("ร้านที่ซื้อสินค้า", r["ร้านที่ซื้อสินค้า"]);
+
+      bodyHtml += sectionTitle("ข้อมูลลูกค้า");
+      bodyHtml += infoRow("ชื่อลูกค้า", r["ชื่อลูกค้า"]);
+      bodyHtml += infoRow("เบอร์โทร", r["เบอร์โทร"]);
+      bodyHtml += infoRow("ประเภทลูกค้า", r["ประเภทลูกค้า"]);
+
+      bodyHtml += sectionTitle("ข้อมูลการขาย");
+      bodyHtml += infoRow("วันที่ซื้อ", formatDateTH(data.purchaseDate));
+      bodyHtml += infoRow("ระยะเวลาประกัน", data.warrantyYears + " ปี");
+      if (data.expiryDate) bodyHtml += infoRow("วันหมดประกัน", formatDateTH(data.expiryDate));
+      bodyHtml += infoRow("ช่องทางการซื้อ-ขาย", r["ช่องทางการซื้อ-ขาย"]);
+      bodyHtml += infoRow("ขายนามบริษัท", r["ขายนามบริษัท"]);
+      if (r["หมายเหตุ"]) bodyHtml += infoRow("หมายเหตุ", r["หมายเหตุ"]);
+      bodyHtml += infoRow("บันทึกเมื่อ", r["บันทึกเมื่อ(เครื่อง)"]);
+
+      let headerHtml, headerClass;
+      if (data.expiryDate == null) {
+        headerHtml = "ℹ️ ไม่มีข้อมูลระยะเวลาประกัน";
+        headerClass = "err";
+      } else if (data.isExpired) {
+        headerHtml = "หมดประกันแล้ว (เกินมา " + data.remainingYears + " ปี " + data.remainingMonths + " เดือน)";
+        headerClass = "expired";
+      } else {
+        headerHtml = "✅ อยู่ในประกัน (เหลืออีก " + data.remainingYears + " ปี " + data.remainingMonths + " เดือน)";
+        headerClass = "ok";
+      }
+
+      showResult(headerHtml, headerClass, bodyHtml);
+    } else {
+      showResult("⚠️ เกิดข้อผิดพลาด", "err", '<div style="font-size:14px;color:#667085;">รูปแบบข้อมูลที่ได้ไม่ถูกต้อง</div>');
+    }
+  } catch (err) {
+    showResult("⚠️ เชื่อมต่อไม่สำเร็จ", "err", '<div style="font-size:14px;color:#667085;">กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง</div>');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "ตรวจสอบ";
+  }
+});
+</script>
+</body>
+</html>
