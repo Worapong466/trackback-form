@@ -26,6 +26,13 @@
     margin-bottom: 20px;
     box-shadow: 0 1px 2px rgba(16,24,40,0.04);
   }
+  /* กล่องผลลัพธ์ไม่มีช่องกรอกข้อมูล จึงย่อขนาดให้พอดีกับเนื้อหาแทนที่จะยืดเต็มความกว้างจอ */
+  .card.result {
+    width: fit-content;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
   .field { display: flex; flex-direction: column; margin-bottom: 16px; }
   label { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #344054; }
   input {
@@ -72,14 +79,15 @@
 
   .info-row {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
+    gap: 20px;
     padding: 9px 0;
     border-bottom: 1px solid #f0f2f5;
     font-size: 14px;
   }
   .info-row:last-child { border-bottom: none; }
-  .info-row .label { color: #667085; }
-  .info-row .value { font-weight: 600; text-align: right; }
+  .info-row .label { color: #667085; flex: 0 0 130px; }
+  .info-row .value { font-weight: 600; text-align: left; }
 
   .spinner {
     display: inline-block;
@@ -93,10 +101,56 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .footnote { font-size: 12px; color: #98a2b3; text-align: center; margin-top: 16px; }
+
+  .brand-header {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .brand-header.show { display: flex; }
+  .brand-header img {
+    max-height: 56px;
+    max-width: 160px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+  }
+  .brand-header .brand-name { font-size: 16px; font-weight: 700; color: #344054; }
+
+  .promo-card {
+    display: none;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+    border: 1px solid #e4e7ec;
+    text-decoration: none;
+    color: inherit;
+    background: #fff;
+  }
+  .promo-card.show { display: block; }
+  .promo-card img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 320px;
+    object-fit: contain;
+    background: #f2f4f7;
+  }
+  .promo-card .promo-text { padding: 14px 16px; }
+  .promo-card .promo-title { font-size: 15px; font-weight: 700; color: #1f2430; margin-bottom: 4px; }
+  .promo-card .promo-desc { font-size: 13px; color: #667085; line-height: 1.5; }
 </style>
 </head>
 <body>
 <div class="wrap">
+  <div class="brand-header" id="brandHeader">
+    <img id="brandLogoImg" alt="โลโก้ร้าน">
+    <span class="brand-name" id="brandNameText"></span>
+  </div>
+
   <h1>🔍 ตรวจสอบประกันสินค้า</h1>
   <div class="sub">กรอกหมายเลข Series number บนตัวเครื่อง เพื่อตรวจสอบวันหมดประกัน</div>
 
@@ -114,6 +168,14 @@
     <div id="resultHeader" class="result-header"></div>
     <div id="resultBody"></div>
   </div>
+
+  <a class="promo-card" id="promoCard" target="_blank" rel="noopener">
+    <img id="promoImgEl" alt="โปรโมชั่น">
+    <div class="promo-text">
+      <div class="promo-title" id="promoTitleText"></div>
+      <div class="promo-desc" id="promoDescText"></div>
+    </div>
+  </a>
 
   <div class="footnote">หากตรวจสอบไม่พบข้อมูล หรือข้อมูลไม่ถูกต้อง กรุณาติดต่อร้านค้าที่ซื้อสินค้า</div>
 </div>
@@ -197,6 +259,38 @@ el("lookupForm").addEventListener("submit", async (ev) => {
 function infoRow(label, value) {
   return '<div class="info-row"><span class="label">' + label + '</span><span class="value">' + (value || "-") + "</span></div>";
 }
+
+// ==== แก้ไขได้ตรงนี้ ไม่ต้องรู้โค้ด — ใส่ค่าในเครื่องหมายคำพูดของแต่ละบรรทัด ====
+const CONFIG = {
+  brandLogo: "LogoDIY.png",
+  brandName: "SolarCell DIY",   // ชื่อร้าน เช่น "SCD Power"
+  promoImg: "promo20260723.png",
+  promoTitle: "อยากติดโซลาร์แต่ไม่รู้จะเริ่มตรงไหน?",   // หัวข้อโปรโมชั่น
+  promoDesc: "โซล่าเซลล์พร้อมติดตั้ง สด -ผ่อน",    // คำอธิบายโปรโมชั่นสั้นๆ
+  promoLink: "https://lin.ee/Tj2tkal"     // ลิงก์ปลายทางเมื่อกดที่โปรโมชั่น เช่น ลิงก์ LINE OA
+};
+// ==================================================================
+
+function initBrandAndPromo() {
+  if (CONFIG.brandLogo || CONFIG.brandName) {
+    if (CONFIG.brandLogo) el("brandLogoImg").src = CONFIG.brandLogo;
+    else el("brandLogoImg").style.display = "none";
+    el("brandNameText").textContent = CONFIG.brandName || "";
+    el("brandHeader").classList.add("show");
+  }
+
+  if (CONFIG.promoImg || CONFIG.promoTitle || CONFIG.promoDesc) {
+    if (CONFIG.promoImg) el("promoImgEl").src = CONFIG.promoImg;
+    else el("promoImgEl").style.display = "none";
+    el("promoTitleText").textContent = CONFIG.promoTitle || "";
+    el("promoDescText").textContent = CONFIG.promoDesc || "";
+    el("promoCard").href = CONFIG.promoLink || "#";
+    if (!CONFIG.promoLink) el("promoCard").removeAttribute("target");
+    el("promoCard").classList.add("show");
+  }
+}
+
+initBrandAndPromo();
 </script>
 </body>
 </html>
