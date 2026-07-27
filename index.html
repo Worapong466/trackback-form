@@ -74,6 +74,8 @@
   .btn-sm { padding: 5px 10px; font-size: 12px; font-weight: 500; }
   .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
   .sn-photo-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .add-model-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .add-model-row input { flex: 1; padding: 6px 8px; font-size: 13px; }
   .file-btn { display: inline-flex; align-items: center; cursor: pointer; margin: 0; }
   .sn-status { font-size: 12px; color: #667085; }
   .sn-status.err { color: #d92d20; }
@@ -178,6 +180,12 @@
         <div class="field">
           <label>Model <span class="req">*</span></label>
           <select id="f_model" required></select>
+          <div class="add-model-row" id="addModelRow" style="display:none;">
+            <input type="text" id="f_new_model" placeholder="พิมพ์ชื่อรุ่นใหม่">
+            <button type="button" class="btn-secondary btn-sm" id="btnAddModel">เพิ่มรุ่นนี้</button>
+            <button type="button" class="btn-outline btn-sm" id="btnCancelAddModel">ยกเลิก</button>
+          </div>
+          <div class="sn-status" id="addModelStatus"></div>
         </div>
 
         <div class="field" id="f_store_wrap">
@@ -275,13 +283,15 @@
 </div>
 
 <script>
-const BRAND_LISTS = {
+// รายการสำรอง (Fallback) — ใช้ตอนเปิดออฟไลน์หรือดึงข้อมูลจากฐานข้อมูลกลางไม่สำเร็จ
+// รายการจริงที่ใช้งานจะพยายามดึงจาก Google Sheet กลางก่อนเสมอ (จะได้รุ่นล่าสุดที่เพิ่มจากทุกเครื่อง)
+let BRAND_LISTS = {
   Inverter: ["Huawei","SOFAR","TMDA","SRNE","TBB","Deye","SAKO","LVTOPSUN","INVT","SOLIS","LUXPOWER"],
   Battery: ["SCD","LVTOPSUN","SAKO","SRNE","NO_BRAND","CST","Deye","DYNESS"],
   Charger: ["SRNE"]
 };
 
-const MODEL_LISTS = {
+let MODEL_LISTS = {
   Inverter: {
     Huawei: ["SUN2000-3KTL-L1","SUN2000-5KTL-L1","SUN2000-5KTL-LB0","SUN2000-10KTL-LC0","SUN2000-5KTL-M1","SUN2000-5KTL-MAP0","SUN2000-10KTL-MAP0","SUN2000-10KTL-M1","SUN2000-12KTL-M2","SUN2000-15KTL-M2","SUN2000-15KTL-M5","SUN2000-20KTL-M2","SUN2000-20KTL-M5","SUN2000-30KTL-M3","SUN2000-50KTL-M3","DDSU666-H (1 Phase Power Sensor)","DTSU666-H (3 Phases Power Sensor)","SmartDongle-WLAN-FE (SDongleA-05)","SUN2000-10K-LC0"],
     SOFAR: ["SOFAR 1600TL-G3","SOFAR 3300TL-G3","SOFAR 5KTL-G3","SOFAR 5.5kw G3","SOFAR 6KTLM-G3","SOFAR 7.5KTL","SOFAR 11kW G3","SOFAR 20kW","SOFAR 30kW","SOFAR 60kW","SOFAR 110KTLX-G4"],
@@ -361,11 +371,145 @@ function refreshBrandOptions() {
   el("f_store_wrap").style.display = (cat === "Inverter") ? "" : "none";
 }
 
+const ADD_NEW_MODEL_VALUE = "__ADD_NEW_MODEL__";
+
 function refreshModelOptions() {
   const cat = el("f_category").value;
   const brand = el("f_brand").value;
   const models = (MODEL_LISTS[cat] && MODEL_LISTS[cat][brand]) || [];
   fillSelect(el("f_model"), models, models.length ? "-- เลือก Model --" : "(ไม่มีข้อมูล Model สำหรับยี่ห้อนี้)");
+  if (brand) {
+    const opt = document.createElement("option");
+    opt.value = ADD_NEW_MODEL_VALUE;
+    opt.textContent = "+ เพิ่มรุ่นใหม่...";
+    el("f_model").appendChild(opt);
+  }
+  hideAddModelRow();
+}
+
+function hideAddModelRow() {
+  el("addModelRow").style.display = "none";
+  el("f_new_model").value = "";
+  setAddModelStatus("");
+}
+
+function setAddModelStatus(text, kind) {
+  const box = el("addModelStatus");
+  box.textContent = text || "";
+  box.className = "sn-status" + (kind ? " " + kind : "");
+}
+
+el("f_model").addEventListener("change", () => {
+  if (el("f_model").value === ADD_NEW_MODEL_VALUE) {
+    el("addModelRow").style.display = "flex";
+    setAddModelStatus("");
+    el("f_new_model").focus();
+  } else {
+    hideAddModelRow();
+  }
+});
+
+el("btnCancelAddModel").addEventListener("click", () => {
+  el("f_model").value = "";
+  hideAddModelRow();
+});
+
+el("btnAddModel").addEventListener("click", async () => {
+  const cat = el("f_category").value;
+  const brand = el("f_brand").value;
+  const newModel = el("f_new_model").value.trim();
+  if (!newModel) {
+    setAddModelStatus("กรุณาพิมพ์ชื่อรุ่นก่อน", "err");
+    return;
+  }
+
+  // เช็คซ้ำเบื้องต้นจากข้อมูลในเครื่องก่อน (เร็ว ไม่ต้องรอเน็ต)
+  const existingModels = (MODEL_LISTS[cat] && MODEL_LISTS[cat][brand]) || [];
+  const localMatch = existingModels.find(m => m.trim().toLowerCase() === newModel.toLowerCase());
+  if (localMatch) {
+    setAddModelStatus("รุ่นนี้มีอยู่แล้วในระบบ: " + localMatch, "err");
+    el("f_model").value = localMatch;
+    hideAddModelRowKeepStatus();
+    return;
+  }
+
+  const url = getSheetUrl();
+  if (!url) {
+    setAddModelStatus("ยังไม่ได้ตั้งค่า Google Sheet URL — เพิ่มรุ่นใหม่ตอนออฟไลน์ไม่ได้", "err");
+    return;
+  }
+
+  const btn = el("btnAddModel");
+  btn.disabled = true;
+  setAddModelStatus("กำลังตรวจสอบ/บันทึก...");
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      body: JSON.stringify({ action: "addModel", category: cat, brand: brand, model: newModel })
+    });
+    const data = await resp.json();
+    if (data.status === "exists") {
+      setAddModelStatus("รุ่นนี้มีอยู่แล้วในระบบ (ซิงก์จากเครื่องอื่น) — เลือกให้อัตโนมัติแล้ว", "err");
+      if (!existingModels.includes(newModel)) {
+        existingModels.push(newModel);
+        MODEL_LISTS[cat][brand] = existingModels;
+        refreshModelOptions();
+      }
+      el("f_model").value = newModel;
+    } else if (data.status === "added") {
+      if (!MODEL_LISTS[cat]) MODEL_LISTS[cat] = {};
+      if (!MODEL_LISTS[cat][brand]) MODEL_LISTS[cat][brand] = [];
+      MODEL_LISTS[cat][brand].push(newModel);
+      refreshModelOptions();
+      el("f_model").value = newModel;
+      setAddModelStatus("เพิ่มรุ่นใหม่สำเร็จ: " + newModel, "ok");
+    } else {
+      setAddModelStatus(data.message || "บันทึกไม่สำเร็จ กรุณาลองใหม่", "err");
+    }
+  } catch (err) {
+    setAddModelStatus("เชื่อมต่อไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่", "err");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function hideAddModelRowKeepStatus() {
+  el("addModelRow").style.display = "none";
+  el("f_new_model").value = "";
+}
+
+async function loadModelsFromServer() {
+  const url = getSheetUrl();
+  if (!url) return;
+  try {
+    const resp = await fetch(url + "?mode=models&_cb=" + Date.now(), { cache: "no-store" });
+    const data = await resp.json();
+    if (data.status !== "ok") return;
+
+    // รวมข้อมูลจากเซิร์ฟเวอร์เข้ากับรายการสำรอง (กันกรณีข้อมูลบนชีทยังไม่ครบ/พึ่งตั้งค่าใหม่)
+    Object.keys(data.BRAND_LISTS || {}).forEach(cat => {
+      if (!BRAND_LISTS[cat]) BRAND_LISTS[cat] = [];
+      data.BRAND_LISTS[cat].forEach(b => { if (!BRAND_LISTS[cat].includes(b)) BRAND_LISTS[cat].push(b); });
+    });
+    Object.keys(data.MODEL_LISTS || {}).forEach(cat => {
+      if (!MODEL_LISTS[cat]) MODEL_LISTS[cat] = {};
+      Object.keys(data.MODEL_LISTS[cat]).forEach(brand => {
+        if (!MODEL_LISTS[cat][brand]) MODEL_LISTS[cat][brand] = [];
+        data.MODEL_LISTS[cat][brand].forEach(m => { if (!MODEL_LISTS[cat][brand].includes(m)) MODEL_LISTS[cat][brand].push(m); });
+      });
+    });
+
+    const currentCat = el("f_category").value;
+    const currentBrand = el("f_brand").value;
+    refreshBrandOptions();
+    el("f_category").value = currentCat;
+    if (BRAND_LISTS[currentCat] && BRAND_LISTS[currentCat].includes(currentBrand)) {
+      el("f_brand").value = currentBrand;
+    }
+    refreshModelOptions();
+  } catch (err) {
+    // ออฟไลน์หรือดึงไม่สำเร็จ — ใช้รายการสำรองที่มีอยู่ต่อไปได้ตามปกติ
+  }
 }
 
 function initStaticSelects() {
@@ -640,6 +784,12 @@ el("entryForm").addEventListener("submit", function(ev) {
     }
   }
 
+  if (el("f_model").value === ADD_NEW_MODEL_VALUE) {
+    showMsg("กรุณากดปุ่ม \"เพิ่มรุ่นนี้\" ให้เสร็จก่อน หรือเลือกรุ่นจากรายการ", false);
+    el("f_new_model").focus();
+    return;
+  }
+
   const entry = {
     id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
     category: cat,
@@ -759,6 +909,7 @@ el("f_sheet_url").value = getSheetUrl();
 renderTable();
 updateSyncStatusText();
 syncPendingEntries();
+loadModelsFromServer();
 
 // PWA: register service worker (only works when served via http/https, silently no-ops on file://)
 if ("serviceWorker" in navigator && (location.protocol === "http:" || location.protocol === "https:")) {
