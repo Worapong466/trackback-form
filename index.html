@@ -142,6 +142,44 @@
     line-height: 1.6;
   }
   .top-row { display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap:10px; }
+  .draft-dashboard { position: relative; }
+  .draft-pill-btn {
+    border: 1px solid #c7d2fe;
+    cursor: pointer;
+    font-family: inherit;
+    margin-left: 0;
+  }
+  .draft-pill-btn:hover { background: #e0e7ff; }
+  .draft-list-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 340px;
+    max-width: 90vw;
+    max-height: 380px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e4e7ec;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(16,24,40,0.12);
+    padding: 12px;
+    z-index: 20;
+    text-align: left;
+  }
+  .draft-list-title { font-size: 13px; font-weight: 700; color: #344054; margin-bottom: 8px; }
+  .draft-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f2f5;
+    font-size: 12.5px;
+  }
+  .draft-item:last-child { border-bottom: none; }
+  .draft-item .draft-info { flex: 1; min-width: 0; }
+  .draft-item .draft-serial { font-weight: 700; color: #1f2430; }
+  .draft-item .draft-sub { color: #667085; font-size: 11.5px; }
 </style>
 </head>
 <body>
@@ -152,7 +190,13 @@
       <div class="sub">ทำงานแบบออฟไลน์ทั้งหมด — ไม่ต้องเชื่อมอินเทอร์เน็ต ข้อมูลจะถูกบันทึกไว้ในเครื่องคอมพิวเตอร์เครื่องนี้เท่านั้น (แยกจากเครื่องอื่น)</div>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
-      <span class="count-pill" id="draftCountPill" title="แบบร่างที่รอกรอกเพิ่มเติม" style="display:none;"></span>
+      <div class="draft-dashboard" id="draftDashboard" style="display:none;">
+        <button type="button" class="count-pill draft-pill-btn" id="draftCountPill" title="คลิกเพื่อดูรายการแบบร่าง"></button>
+        <div class="draft-list-panel" id="draftListPanel" style="display:none;">
+          <div class="draft-list-title">แบบร่างที่รอกรอกเพิ่มเติม</div>
+          <div id="draftListContainer"></div>
+        </div>
+      </div>
       <button type="button" class="btn-secondary" id="btnInstall" style="display:none;">📲 ติดตั้งเป็นแอป</button>
     </div>
   </div>
@@ -741,19 +785,83 @@ let currentDraftMatch = null;
 
 async function updateDraftCountBadge() {
   const url = getSheetUrl();
+  const dashboard = el("draftDashboard");
   const pill = el("draftCountPill");
-  if (!url) { pill.style.display = "none"; return; }
+  if (!url) { dashboard.style.display = "none"; return; }
   try {
     const resp = await fetch(url + "?mode=draftCount&_cb=" + Date.now(), { cache: "no-store" });
     const data = await resp.json();
     if (data.status === "ok") {
       pill.textContent = "📋 แบบร่างค้างอยู่ " + data.count + " รายการ";
-      pill.style.display = data.count > 0 ? "" : "none";
+      dashboard.style.display = data.count > 0 ? "" : "none";
+      if (data.count === 0) el("draftListPanel").style.display = "none";
     }
   } catch (err) {
     // เงียบไว้ ไม่ต้องแจ้งเตือน เดี๋ยวลองใหม่ตอนโหลดหน้าครั้งหน้า
   }
 }
+
+async function toggleDraftListPanel() {
+  const panel = el("draftListPanel");
+  const isOpen = panel.style.display !== "none";
+  if (isOpen) {
+    panel.style.display = "none";
+    return;
+  }
+  panel.style.display = "block";
+  el("draftListContainer").innerHTML = '<div style="font-size:12.5px;color:#98a2b3;">กำลังโหลด...</div>';
+  const url = getSheetUrl();
+  if (!url) {
+    el("draftListContainer").innerHTML = '<div style="font-size:12.5px;color:#d92d20;">ยังไม่ได้ตั้งค่า Google Sheet URL</div>';
+    return;
+  }
+  try {
+    const resp = await fetch(url + "?mode=draftList&_cb=" + Date.now(), { cache: "no-store" });
+    const data = await resp.json();
+    if (data.status !== "ok" || !data.drafts.length) {
+      el("draftListContainer").innerHTML = '<div style="font-size:12.5px;color:#98a2b3;">ไม่มีแบบร่างค้างอยู่</div>';
+      return;
+    }
+    el("draftListContainer").innerHTML = data.drafts.map((d, i) => `
+      <div class="draft-item">
+        <div class="draft-info">
+          <div class="draft-serial">${escapeHtml(d.serial)}</div>
+          <div class="draft-sub">${escapeHtml(d.category)} · ${escapeHtml(d.brand || "-")} · ${escapeHtml(d.customer || "-")}</div>
+        </div>
+        <button type="button" class="btn-secondary btn-sm" data-draft-idx="${i}">กรอกต่อ</button>
+      </div>
+    `).join("");
+    el("draftListContainer").querySelectorAll("[data-draft-idx]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const d = data.drafts[parseInt(btn.getAttribute("data-draft-idx"), 10)];
+        fillFormFromDraft(d);
+        panel.style.display = "none";
+      });
+    });
+  } catch (err) {
+    el("draftListContainer").innerHTML = '<div style="font-size:12.5px;color:#d92d20;">โหลดรายการไม่สำเร็จ กรุณาลองใหม่</div>';
+  }
+}
+
+function fillFormFromDraft(d) {
+  el("f_category").value = d.category;
+  el("f_category").dispatchEvent(new Event("change"));
+  el("f_serial").value = d.serial;
+  el("f_brand").value = d.brand;
+  el("f_brand").dispatchEvent(new Event("change"));
+  el("f_customer").value = d.customer || "";
+  hideDraftBanner();
+  showMsg("ดึงข้อมูลแบบร่าง " + d.serial + " มากรอกต่อแล้ว กรุณากรอกรายละเอียดที่เหลือให้ครบ", true);
+  el("f_phone").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+el("draftCountPill").addEventListener("click", toggleDraftListPanel);
+document.addEventListener("click", (ev) => {
+  const dashboard = el("draftDashboard");
+  if (dashboard && !dashboard.contains(ev.target)) {
+    el("draftListPanel").style.display = "none";
+  }
+});
 
 async function checkDraftForSerial() {
   const serial = el("f_serial").value.trim();
