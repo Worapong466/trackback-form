@@ -118,6 +118,19 @@
     margin-left: 8px;
   }
   .empty-note { padding: 24px; text-align: center; color: #98a2b3; font-size: 13px; }
+  .draft-found-banner {
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    color: #3538cd;
+    border-radius: 8px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
   .warn-box {
     background: #fffaeb;
     border: 1px solid #fedf89;
@@ -138,7 +151,10 @@
       <h1>ฟอร์มกรอกข้อมูลสินค้าที่จำหน่าย</h1>
       <div class="sub">ทำงานแบบออฟไลน์ทั้งหมด — ไม่ต้องเชื่อมอินเทอร์เน็ต ข้อมูลจะถูกบันทึกไว้ในเครื่องคอมพิวเตอร์เครื่องนี้เท่านั้น (แยกจากเครื่องอื่น)</div>
     </div>
-    <button type="button" class="btn-secondary" id="btnInstall" style="display:none;">📲 ติดตั้งเป็นแอป</button>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="count-pill" id="draftCountPill" title="แบบร่างที่รอกรอกเพิ่มเติม" style="display:none;"></span>
+      <button type="button" class="btn-secondary" id="btnInstall" style="display:none;">📲 ติดตั้งเป็นแอป</button>
+    </div>
   </div>
 
   <div class="warn-box">
@@ -171,6 +187,11 @@
             <span class="sn-status" id="ocrStatus"></span>
           </div>
           <img id="f_serial_preview" class="sn-preview" style="display:none;">
+          <div class="draft-found-banner" id="draftFoundBanner" style="display:none;">
+            📋 พบแบบร่างของเครื่องนี้ (<span id="draftFoundSummary"></span>)
+            <button type="button" class="btn-secondary btn-sm" id="btnUseDraft">ดึงข้อมูลมากรอกต่อ</button>
+            <button type="button" class="btn-outline btn-sm" id="btnDismissDraft">ไม่ใช้ / กรอกใหม่</button>
+          </div>
         </div>
 
         <div class="field">
@@ -232,9 +253,11 @@
 
       <div class="actions">
         <button type="submit" class="btn-primary">บันทึกข้อมูล</button>
+        <button type="button" class="btn-secondary" id="btnSaveDraft">📋 บันทึกแบบร่าง (กรอกคร่าวๆ ไว้ก่อน)</button>
         <button type="button" class="btn-outline" id="btnClear">ล้างฟอร์ม</button>
       </div>
       <div class="msg" id="msgBox"></div>
+      <div class="sn-status" id="draftMsg" style="margin-top:6px;"></div>
     </form>
   </div>
 
@@ -536,6 +559,8 @@ function resetForm(keepCategory) {
   refreshBrandOptions();
   el("f_date").value = todayStr();
   clearSerialPhoto();
+  hideDraftBanner();
+  setDraftMsg("");
 }
 
 // ---- Serial number photo + OCR ----
@@ -711,6 +736,123 @@ el("f_sheet_url").addEventListener("change", () => {
 
 el("btnSyncNow").addEventListener("click", () => syncPendingEntries());
 
+// ==== แบบร่าง (Draft) ====
+let currentDraftMatch = null;
+
+async function updateDraftCountBadge() {
+  const url = getSheetUrl();
+  const pill = el("draftCountPill");
+  if (!url) { pill.style.display = "none"; return; }
+  try {
+    const resp = await fetch(url + "?mode=draftCount&_cb=" + Date.now(), { cache: "no-store" });
+    const data = await resp.json();
+    if (data.status === "ok") {
+      pill.textContent = "📋 แบบร่างค้างอยู่ " + data.count + " รายการ";
+      pill.style.display = data.count > 0 ? "" : "none";
+    }
+  } catch (err) {
+    // เงียบไว้ ไม่ต้องแจ้งเตือน เดี๋ยวลองใหม่ตอนโหลดหน้าครั้งหน้า
+  }
+}
+
+async function checkDraftForSerial() {
+  const serial = el("f_serial").value.trim();
+  const url = getSheetUrl();
+  if (!serial || !url) { hideDraftBanner(); return; }
+  try {
+    const resp = await fetch(url + "?mode=draftLookup&serial=" + encodeURIComponent(serial) + "&_cb=" + Date.now(), { cache: "no-store" });
+    const data = await resp.json();
+    if (data.status === "found") {
+      currentDraftMatch = data;
+      el("draftFoundSummary").textContent = "ยี่ห้อ: " + (data.brand || "-") + " / ลูกค้า: " + (data.customer || "-");
+      el("draftFoundBanner").style.display = "flex";
+    } else {
+      hideDraftBanner();
+    }
+  } catch (err) {
+    hideDraftBanner();
+  }
+}
+
+function hideDraftBanner() {
+  currentDraftMatch = null;
+  el("draftFoundBanner").style.display = "none";
+}
+
+el("f_serial").addEventListener("blur", checkDraftForSerial);
+
+el("btnUseDraft").addEventListener("click", () => {
+  if (!currentDraftMatch) return;
+  el("f_category").value = currentDraftMatch.category;
+  el("f_category").dispatchEvent(new Event("change"));
+  el("f_brand").value = currentDraftMatch.brand;
+  el("f_brand").dispatchEvent(new Event("change"));
+  el("f_customer").value = currentDraftMatch.customer || "";
+  showMsg("ดึงข้อมูลแบบร่างมากรอกต่อแล้ว กรุณากรอกรายละเอียดที่เหลือให้ครบ", true);
+  hideDraftBanner();
+});
+
+el("btnDismissDraft").addEventListener("click", hideDraftBanner);
+
+el("btnSaveDraft").addEventListener("click", async () => {
+  const category = el("f_category").value;
+  const serial = el("f_serial").value.trim();
+  const brand = el("f_brand").value;
+  const customer = el("f_customer").value.trim();
+
+  if (!serial || !brand || !customer) {
+    setDraftMsg("กรุณากรอก Series number, ยี่ห้อ และชื่อลูกค้า อย่างน้อย ก่อนบันทึกแบบร่าง", "err");
+    return;
+  }
+  const url = getSheetUrl();
+  if (!url) {
+    setDraftMsg("ยังไม่ได้ตั้งค่า Google Sheet URL — บันทึกแบบร่างตอนออฟไลน์ไม่ได้", "err");
+    return;
+  }
+
+  const btn = el("btnSaveDraft");
+  btn.disabled = true;
+  setDraftMsg("กำลังบันทึกแบบร่าง...");
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "saveDraft", category: category, serial: serial, brand: brand, customer: customer,
+        savedAt: new Date().toLocaleString("th-TH"), deviceId: getDeviceId()
+      })
+    });
+    const data = await resp.json();
+    if (data.status === "ok") {
+      setDraftMsg("บันทึกแบบร่างสำเร็จ — กลับมากรอกรายละเอียดเพิ่มเติมทีหลังได้โดยพิมพ์ Series number เดิม", "ok");
+      updateDraftCountBadge();
+      resetForm(true);
+    } else {
+      setDraftMsg(data.message || "บันทึกแบบร่างไม่สำเร็จ กรุณาลองใหม่", "err");
+    }
+  } catch (err) {
+    setDraftMsg("เชื่อมต่อไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่", "err");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function setDraftMsg(text, kind) {
+  const box = el("draftMsg");
+  box.textContent = text || "";
+  box.className = "sn-status" + (kind ? " " + kind : "");
+}
+
+async function completeDraftIfMatching(serial) {
+  const url = getSheetUrl();
+  if (!url || !serial) return;
+  try {
+    await fetch(url, { method: "POST", body: JSON.stringify({ action: "deleteDraft", serial: serial }) });
+    updateDraftCountBadge();
+  } catch (err) {
+    // ไม่ต้องแจ้งเตือน ถ้าลบไม่สำเร็จแบบร่างจะยังค้างอยู่ ไม่กระทบข้อมูลที่บันทึกสำเร็จแล้ว
+  }
+}
+
 function formatDateTH(iso) {
   if (!iso) return "";
   const [y,m,d] = iso.split("-");
@@ -821,6 +963,7 @@ el("entryForm").addEventListener("submit", function(ev) {
   }
   resetForm(true);
   syncPendingEntries();
+  completeDraftIfMatching(entry.serial);
 });
 
 el("btnClear").addEventListener("click", () => resetForm(true));
@@ -910,6 +1053,7 @@ renderTable();
 updateSyncStatusText();
 syncPendingEntries();
 loadModelsFromServer();
+updateDraftCountBadge();
 
 // PWA: register service worker (only works when served via http/https, silently no-ops on file://)
 if ("serviceWorker" in navigator && (location.protocol === "http:" || location.protocol === "https:")) {
