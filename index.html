@@ -660,6 +660,57 @@ function loadTesseractFromCDN() {
   return tesseractLoadPromise;
 }
 
+// ปรับภาพก่อนอ่าน: ขยายภาพเล็กให้ใหญ่ขึ้น + แปลงเป็นขาวดำแล้วดึงคอนทราสต์ ช่วยให้ Tesseract อ่านตัวเลข/ตัวอักษรบนสติ๊กเกอร์ SN ได้แม่นขึ้น
+function preprocessImageForOcr(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = img.width < 1000 ? Math.min(3, 1000 / img.width) : 1;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      const grayVals = new Float32Array(data.length / 4);
+      let min = 255, max = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        grayVals[i / 4] = g;
+        if (g < min) min = g;
+        if (g > max) max = g;
+      }
+      const range = Math.max(1, max - min);
+      for (let i = 0; i < data.length; i += 4) {
+        const stretched = Math.round(((grayVals[i / 4] - min) / range) * 255);
+        data[i] = data[i + 1] = data[i + 2] = stretched;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("ปรับภาพไม่สำเร็จ"))), "image/png");
+    };
+    img.onerror = () => reject(new Error("โหลดรูปไม่สำเร็จ"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+let tesseractWorkerPromise = null;
+async function getTesseractWorker() {
+  if (tesseractWorkerPromise) return tesseractWorkerPromise;
+  tesseractWorkerPromise = (async () => {
+    await loadTesseractFromCDN();
+    const worker = await Tesseract.createWorker("eng");
+    // จำกัดตัวอักษรที่ยอมรับ เพราะ Series number ไม่มีตัวอักษรไทย/สัญลักษณ์อื่น
+    // ช่วยลดการอ่านผิดเป็นตัวอักษรแปลกๆ ได้มาก
+    await worker.setParameters({
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
+    });
+    return worker;
+  })();
+  return tesseractWorkerPromise;
+}
+
 function extractLikelySerial(rawText) {
   const cleaned = rawText.replace(/[^A-Za-z0-9\-]/g, " ").trim();
   const tokens = cleaned.split(/\s+/).filter(t => t.length >= 4);
@@ -676,9 +727,11 @@ el("btnOcr").addEventListener("click", async () => {
   btn.disabled = true;
   setOcrStatus("กำลังโหลดตัวอ่านข้อความ...");
   try {
-    await loadTesseractFromCDN();
+    const worker = await getTesseractWorker();
+    setOcrStatus("กำลังปรับภาพให้อ่านง่ายขึ้น...");
+    const processedImage = await preprocessImageForOcr(file);
     setOcrStatus("กำลังอ่านตัวเลข/ตัวอักษรจากรูป...");
-    const result = await Tesseract.recognize(file, "eng");
+    const result = await worker.recognize(processedImage);
     const raw = (result && result.data && result.data.text) || "";
     const guess = extractLikelySerial(raw);
     if (guess) {
