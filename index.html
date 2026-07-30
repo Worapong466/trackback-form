@@ -89,6 +89,21 @@
     border-radius: 8px;
     object-fit: contain;
   }
+  .candidate-row { margin-top: 8px; }
+  .candidate-label { font-size: 11.5px; color: #98a2b3; display: block; margin-bottom: 5px; }
+  .candidate-chip {
+    display: inline-block;
+    background: #eef2ff;
+    color: #3538cd;
+    border: 1px solid #c7d2fe;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    margin: 0 6px 6px 0;
+    cursor: pointer;
+  }
+  .candidate-chip:hover { background: #e0e7ff; }
   .msg {
     display: none;
     padding: 10px 14px;
@@ -226,11 +241,16 @@
               📷 แนบรูป SN
               <input type="file" id="f_serial_photo" accept="image/*" style="display:none;">
             </label>
-            <button type="button" class="btn-secondary btn-sm" id="btnOcr" disabled>🔎 อ่านอัตโนมัติ (OCR)</button>
+            <button type="button" class="btn-secondary btn-sm" id="btnBarcode" disabled>📊 สแกนบาร์โค้ด</button>
+            <button type="button" class="btn-secondary btn-sm" id="btnOcr" disabled>🔎 อ่านตัวอักษร (OCR)</button>
             <button type="button" class="btn-outline btn-sm" id="btnClearPhoto" style="display:none;">✕ ลบรูป</button>
             <span class="sn-status" id="ocrStatus"></span>
           </div>
           <img id="f_serial_preview" class="sn-preview" style="display:none;">
+          <div class="candidate-row" id="candidateRow" style="display:none;">
+            <span class="candidate-label">ตัวเลือกอื่นที่เจอในรูป (แตะเพื่อใช้แทน):</span>
+            <div id="candidateChips"></div>
+          </div>
           <div class="draft-found-banner" id="draftFoundBanner" style="display:none;">
             📋 พบแบบร่างของเครื่องนี้ (<span id="draftFoundSummary"></span>)
             <button type="button" class="btn-secondary btn-sm" id="btnUseDraft">ดึงข้อมูลมากรอกต่อ</button>
@@ -628,8 +648,10 @@ function clearSerialPhoto() {
   preview.src = "";
   preview.style.display = "none";
   el("btnOcr").disabled = true;
+  el("btnBarcode").disabled = true;
   el("btnClearPhoto").style.display = "none";
   setOcrStatus("");
+  hideCandidateChips();
 }
 
 el("f_serial_photo").addEventListener("change", (ev) => {
@@ -641,8 +663,10 @@ el("f_serial_photo").addEventListener("change", (ev) => {
   preview.src = currentSerialPhotoUrl;
   preview.style.display = "block";
   el("btnOcr").disabled = false;
+  el("btnBarcode").disabled = false;
   el("btnClearPhoto").style.display = "";
-  setOcrStatus("แนบรูปแล้ว — กด \"อ่านอัตโนมัติ\" เพื่อให้ระบบลองอ่าน SN ให้ หรือพิมพ์เองก็ได้");
+  hideCandidateChips();
+  setOcrStatus("แนบรูปแล้ว — ลองกด \"สแกนบาร์โค้ด\" ก่อน (แม่นกว่า) ถ้าไม่มีบาร์โค้ดในรูปค่อยกด \"อ่านตัวอักษร (OCR)\" แทน");
 });
 
 el("btnClearPhoto").addEventListener("click", clearSerialPhoto);
@@ -704,19 +728,64 @@ async function getTesseractWorker() {
     // จำกัดตัวอักษรที่ยอมรับ เพราะ Series number ไม่มีตัวอักษรไทย/สัญลักษณ์อื่น
     // ช่วยลดการอ่านผิดเป็นตัวอักษรแปลกๆ ได้มาก
     await worker.setParameters({
-      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
+      // เผื่อช่องว่าง/ทวิภาค/ทับ ไว้ด้วย ไม่งั้น Tesseract จะเชื่อมคำติดกัน (เช่น "S/N:" ติดกับตัวเลข)
+      // ทำให้หาป้ายกำกับ SN/Serial ไม่เจอ — ต้องเปิด preserve_interword_spaces ด้วย ไม่งั้นช่องว่างหายแม้จะอยู่ในรายการที่ยอมรับ
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-:/ ",
+      preserve_interword_spaces: "1"
     });
     return worker;
   })();
   return tesseractWorkerPromise;
 }
 
-function extractLikelySerial(rawText) {
-  const cleaned = rawText.replace(/[^A-Za-z0-9\-]/g, " ").trim();
-  const tokens = cleaned.split(/\s+/).filter(t => t.length >= 4);
-  if (tokens.length === 0) return rawText.trim();
-  tokens.sort((a, b) => b.length - a.length);
-  return tokens[0].toUpperCase();
+// วิเคราะห์ข้อความที่ OCR อ่านได้ทั้งหมด: หาว่าคำไหนน่าจะเป็น SN ที่สุด
+// ให้ความสำคัญกับคำที่อยู่ถัดจากป้ายกำกับ "SN" / "S/N" / "Serial" ก่อน (แม่นกว่าเดาจากความยาวเฉยๆ)
+// เผื่อในรูปมีเลขอื่นติดมาด้วย (เช่น เลขรุ่น, วันที่ผลิต) แล้วคืนตัวเลือกอื่นๆ ไว้ให้แก้ไขได้ด้วย
+const OCR_LABEL_WORDS = ["SN", "S/N", "SERIAL", "SERIES", "MODEL", "MODEL:", "S/N:", "SERIAL:"];
+
+function analyzeOcrText(rawText) {
+  const cleaned = rawText.replace(/[^A-Za-z0-9\-\s\/:]/g, " ");
+
+  const seen = new Set();
+  const candidates = [];
+  cleaned.split(/\s+/).forEach(t => {
+    const norm = t.replace(/^[:\-\/]+|[:\-\/]+$/g, "").toUpperCase();
+    if (norm.length >= 4 && !seen.has(norm) && !OCR_LABEL_WORDS.includes(norm)) {
+      seen.add(norm);
+      candidates.push(norm);
+    }
+  });
+
+  let best = null;
+  const labelMatch = cleaned.match(/\b(?:S\s*[\/\-]?\s*N|SERIAL|SERIES?)\b[:\-\s]*([A-Za-z0-9\-]{4,})/i);
+  if (labelMatch && labelMatch[1]) {
+    best = labelMatch[1].replace(/^-+|-+$/g, "").toUpperCase();
+  } else if (candidates.length > 0) {
+    best = candidates.slice().sort((a, b) => b.length - a.length)[0];
+  }
+
+  return { best: best || rawText.trim().toUpperCase(), candidates: candidates.slice(0, 6) };
+}
+
+function showCandidateChips(candidates, exclude) {
+  const list = candidates.filter(c => c !== exclude);
+  if (list.length === 0) { hideCandidateChips(); return; }
+  el("candidateChips").innerHTML = list.map(c =>
+    `<span class="candidate-chip" data-val="${escapeHtml(c)}">${escapeHtml(c)}</span>`
+  ).join("");
+  el("candidateChips").querySelectorAll("[data-val]").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const val = chip.getAttribute("data-val");
+      el("f_serial").value = val;
+      setOcrStatus("เลือกใช้: \"" + val + "\"", "ok");
+    });
+  });
+  el("candidateRow").style.display = "block";
+}
+
+function hideCandidateChips() {
+  el("candidateRow").style.display = "none";
+  el("candidateChips").innerHTML = "";
 }
 
 el("btnOcr").addEventListener("click", async () => {
@@ -733,16 +802,58 @@ el("btnOcr").addEventListener("click", async () => {
     setOcrStatus("กำลังอ่านตัวเลข/ตัวอักษรจากรูป...");
     const result = await worker.recognize(processedImage);
     const raw = (result && result.data && result.data.text) || "";
-    const guess = extractLikelySerial(raw);
-    if (guess) {
-      el("f_serial").value = guess;
-      setOcrStatus("อ่านได้: \"" + guess + "\" — กรุณาตรวจสอบกับรูปก่อนบันทึก (OCR อาจอ่านผิดได้)", "ok");
+    const { best, candidates } = analyzeOcrText(raw);
+    if (best) {
+      el("f_serial").value = best;
+      setOcrStatus("อ่านได้: \"" + best + "\" — กรุณาตรวจสอบกับรูปก่อนบันทึก (OCR อาจอ่านผิดได้)", "ok");
+      showCandidateChips(candidates, best);
     } else {
       setOcrStatus("อ่านจากรูปไม่ได้ กรุณาพิมพ์ SN เอง", "err");
+      hideCandidateChips();
     }
   } catch (err) {
     setOcrStatus(err.message || "อ่านจากรูปไม่สำเร็จ กรุณาพิมพ์ SN เอง", "err");
   } finally {
+    btn.disabled = false;
+  }
+});
+
+// ==== สแกนบาร์โค้ด (แม่นกว่า OCR มาก ถ้าในรูปมีแท่งบาร์โค้ดของ SN) ====
+let zxingLoadPromise = null;
+function loadZXingFromCDN() {
+  if (window.ZXing) return Promise.resolve();
+  if (zxingLoadPromise) return zxingLoadPromise;
+  zxingLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("โหลดตัวสแกนบาร์โค้ดไม่สำเร็จ (ต้องมีอินเทอร์เน็ตอย่างน้อยครั้งแรกที่ใช้)"));
+    document.head.appendChild(script);
+  });
+  return zxingLoadPromise;
+}
+
+el("btnBarcode").addEventListener("click", async () => {
+  const fileInput = el("f_serial_photo");
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) return;
+  const btn = el("btnBarcode");
+  btn.disabled = true;
+  hideCandidateChips();
+  setOcrStatus("กำลังโหลดตัวสแกนบาร์โค้ด...");
+  const imgUrl = URL.createObjectURL(file);
+  try {
+    await loadZXingFromCDN();
+    setOcrStatus("กำลังสแกนบาร์โค้ดจากรูป...");
+    const reader = new ZXing.BrowserMultiFormatReader();
+    const result = await reader.decodeFromImageUrl(imgUrl);
+    const text = result.getText().trim();
+    el("f_serial").value = text;
+    setOcrStatus("✅ สแกนบาร์โค้ดสำเร็จ: \"" + text + "\"", "ok");
+  } catch (err) {
+    setOcrStatus("ไม่พบบาร์โค้ดในรูป — ลองถ่ายให้เห็นแท่งบาร์โค้ดชัดๆ เต็มเฟรม ไม่เอียง หรือกด \"อ่านตัวอักษร (OCR)\" แทน", "err");
+  } finally {
+    URL.revokeObjectURL(imgUrl);
     btn.disabled = false;
   }
 });
